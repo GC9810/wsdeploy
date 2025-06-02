@@ -14,12 +14,12 @@ if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdenti
 function Show-Menu {
     Clear-Host
     Write-Host "===== IT Admin Toolbox ====="
-    Write-Host "0. Run All (Option 1-5)"
+    Write-Host "0. Run All (Options 1-5)"
     Write-Host "1. Install Software via Winget"
     Write-Host "2. Configure Power Options and Accessibility Settings"
     Write-Host "3. Download Files to Desktop"
-    Write-Host "4. Run Activation Script"
-    Write-Host "5. Create Desktop Shortcuts (Delete Existing First)"
+    Write-Host "4. Create Desktop Shortcuts (Delete Existing First)"
+    Write-Host "5. Run Activation Script"
     Write-Host "6. Exit"
     Write-Host "==========================="
 }
@@ -64,18 +64,93 @@ function Install-Software {
 
 # Function to configure power options and accessibility settings
 function Configure-Settings {
-    Write-Host "Configuring power settings: Never sleep, screen never turns off..."
-    powercfg /change standby-timeout-ac 0
-    powercfg /change monitor-timeout-ac 0
-    powercfg /change standby-timeout-dc 0
-    powercfg /change monitor-timeout-dc 0
+    Write-Host "=== Configuring Power and Accessibility Settings ==="
 
-    Write-Host "Configuring accessibility settings: Disable animations, enable classic context menu..."
+    # Configure power settings: Never sleep, never turn off screen
+    Write-Host "Configuring power settings: Never sleep, screen never turns off..."
+    try {
+        powercfg /change standby-timeout-ac 0
+        powercfg /change monitor-timeout-ac 0
+        powercfg /change standby-timeout-dc 0
+        powercfg /change monitor-timeout-dc 0
+        Write-Host "Power settings configured successfully."
+    }
+    catch {
+        Write-Host "Failed to configure power settings: $_"
+    }
+
+    # Configure desktop icon settings: Align to grid, left-aligned, disable auto-arrange
+    Write-Host "Configuring desktop icons: Align to grid, left-aligned..."
+    try {
+        $desktopRegPath = "HKCU:\Software\Microsoft\Windows\Shell\Bags\1\Desktop"
+        if (-not (Test-Path $desktopRegPath)) {
+            New-Item -Path $desktopRegPath -Force | Out-Null
+        }
+        $currentFFlags = (Get-ItemProperty -Path $desktopRegPath -Name "FFlags" -ErrorAction SilentlyContinue).FFlags
+        if ($null -eq $currentFFlags) {
+            $currentFFlags = 0
+        }
+        # Enable align to grid (0x2), disable auto-arrange (clear 0x1)
+        $newFFlags = ($currentFFlags -bor 0x2) -band (-bnot 0x1)
+        Set-ItemProperty -Path $desktopRegPath -Name "FFlags" -Value $newFFlags
+        # Set SortOrderIndex to 0 for left-aligned (no specific sort order)
+        Set-ItemProperty -Path $desktopRegPath -Name "SortOrderIndex" -Value 0
+        Write-Host "Desktop icons configured: Aligned to grid, left-aligned."
+    }
+    catch {
+        Write-Host "Failed to configure desktop icons: $_"
+    }
+
     # Disable animations in Accessibility -> Visual Effects
-    Set-ItemProperty -Path "HKCU:\Control Panel\Accessibility" -Name "UserPreferencesMask" -Value ([byte[]](0x90,0x12,0x03,0x80,0x10,0x00,0x00,0x00))
+    Write-Host "Disabling animations in Accessibility settings..."
+    try {
+        Set-ItemProperty -Path "HKCU:\Control Panel\Accessibility" -Name "UserPreferencesMask" -Value ([byte[]](0x90,0x12,0x03,0x80,0x10,0x00,0x00,0x00))
+        $newPrefs = Get-ItemProperty -Path "HKCU:\Control Panel\Accessibility" -Name "UserPreferencesMask"
+        if ($newPrefs.UserPreferencesMask[0] -eq 0x90) {
+            Write-Host "Animations disabled successfully."
+        } else {
+            Write-Host "Warning: Animations may not have been disabled correctly. Current value: $($newPrefs.UserPreferencesMask)"
+        }
+    }
+    catch {
+        Write-Host "Failed to disable animations: $_"
+    }
+
     # Enable classic right-click context menu
-    New-Item -Path "HKCU:\Software\Classes\CLSID\{86ca1aa0-34aa-4e8b-a509-50c905bae2a2}" -Name "InprocServer32" -Force | Out-Null
-    Set-ItemProperty -Path "HKCU:\Software\Classes\CLSID\{86ca1aa0-34aa-4e8b-a509-50c905bae2a2}\InprocServer32" -Name "(Default)" -Value ""
+    Write-Host "Enabling classic right-click context menu..."
+    try {
+        New-Item -Path "HKCU:\Software\Classes\CLSID\{86ca1aa0-34aa-4e8b-a509-50c905bae2a2}" -Name "InprocServer32" -Force | Out-Null
+        Set-ItemProperty -Path "HKCU:\Software\Classes\CLSID\{86ca1aa0-34aa-4e8b-a509-50c905bae2a2}\InprocServer32" -Name "(Default)" -Value ""
+        Write-Host "Classic context menu enabled."
+    }
+    catch {
+        Write-Host "Failed to enable classic context menu: $_"
+    }
+
+    # Remove search box and Task View from taskbar
+    Write-Host "Removing search box and Task View from taskbar..."
+    try {
+        $taskbarRegPath = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Search"
+        Set-ItemProperty -Path $taskbarRegPath -Name "SearchboxTaskbarMode" -Value 0
+        $explorerRegPath = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced"
+        Set-ItemProperty -Path $explorerRegPath -Name "ShowTaskViewButton" -Value 0
+        Write-Host "Search box and Task View removed from taskbar."
+    }
+    catch {
+        Write-Host "Failed to configure taskbar settings: $_"
+    }
+
+    # Restart Explorer to apply taskbar and icon changes
+    Write-Host "Restarting Explorer to apply changes..."
+    try {
+        Stop-Process -Name explorer -Force -ErrorAction Stop
+        Write-Host "Explorer restarted successfully."
+    }
+    catch {
+        Write-Host "Failed to restart Explorer: $_"
+    }
+
+    Write-Host "Settings configuration completed."
 }
 
 # Function to download files to desktop
@@ -97,17 +172,6 @@ function Download-Files {
         catch {
             Write-Host "Failed to download $fileName. Error: $_"
         }
-    }
-}
-
-# Function to run activation script
-function Run-Activation {
-    Write-Host "Running activation script..."
-    try {
-        irm https://get.activated.win | iex
-    }
-    catch {
-        Write-Host "Failed to run activation script. Error: $_"
     }
 }
 
@@ -161,9 +225,19 @@ function Create-Shortcuts {
         "Chrome" = "C:\Program Files\Google\Chrome\Application\chrome.exe"
     }
 
-    # Create shortcuts on the user's desktop
     foreach ($App in $Apps.GetEnumerator()) {
         Create-Shortcut -TargetPath $App.Value -ShortcutPath ([Environment]::GetFolderPath("Desktop")) -ShortcutName $App.Key
+    }
+}
+
+# Function to run activation script
+function Run-Activation {
+    Write-Host "Running activation script..."
+    try {
+        irm https://get.activated.win | iex
+    }
+    catch {
+        Write-Host "Failed to run activation script. Error: $_"
     }
 }
 
@@ -178,8 +252,8 @@ do {
             Install-Software
             Configure-Settings
             Download-Files
-            Run-Activation
             Create-Shortcuts
+            Run-Activation
             Write-Host "All tasks completed. Press any key to continue..."
             $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
         }
@@ -199,13 +273,13 @@ do {
             $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
         }
         "4" {
-            Run-Activation
-            Write-Host "Activation script executed. Press any key to continue..."
+            Create-Shortcuts
+            Write-Host "Shortcut creation completed. Press any key to continue..."
             $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
         }
         "5" {
-            Create-Shortcuts
-            Write-Host "Shortcut creation completed. Press any key to continue..."
+            Run-Activation
+            Write-Host "Activation script executed. Press any key to continue..."
             $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
         }
         "6" {
