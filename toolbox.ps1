@@ -113,11 +113,24 @@ function Run-Activation {
 
 # Function to create desktop shortcuts
 function Create-Shortcuts {
-    $DesktopPath = [Environment]::GetFolderPath("Desktop")
+    $DesktopPaths = @([Environment]::GetFolderPath("Desktop"), "C:\Users\Public\Desktop")
     
     # Delete existing shortcuts
-    Write-Host "Deleting existing shortcuts on desktop..."
-    Get-ChildItem -Path $DesktopPath -Filter "*.lnk" | Remove-Item -Force
+    foreach ($DesktopPath in $DesktopPaths) {
+        if (Test-Path $DesktopPath) {
+            Write-Host "Deleting existing shortcuts on $DesktopPath..."
+            $shortcuts = Get-ChildItem -Path $DesktopPath -Filter "*.lnk" -ErrorAction SilentlyContinue
+            foreach ($shortcut in $shortcuts) {
+                try {
+                    Remove-Item -Path $shortcut.FullName -Force -ErrorAction Stop
+                    Write-Host "Deleted: $($shortcut.Name)"
+                }
+                catch {
+                    Write-Host "Failed to delete $($shortcut.Name): $_"
+                }
+            }
+        }
+    }
 
     # Function to create a shortcut
     function Create-Shortcut {
@@ -148,8 +161,9 @@ function Create-Shortcuts {
         "Chrome" = "C:\Program Files\Google\Chrome\Application\chrome.exe"
     }
 
+    # Create shortcuts on the user's desktop
     foreach ($App in $Apps.GetEnumerator()) {
-        Create-Shortcut -TargetPath $App.Value -ShortcutPath $DesktopPath -ShortcutName $App.Key
+        Create-Shortcut -TargetPath $App.Value -ShortcutPath ([Environment]::GetFolderPath("Desktop")) -ShortcutName $App.Key
     }
 }
 
